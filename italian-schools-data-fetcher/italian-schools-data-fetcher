@@ -14,9 +14,13 @@ source \
   "${_lib}/libcrash-bash/crash-bash"
 
 _root_requirements() {
-  _check_cmd \
-    "display-ppa" \
-    "android-display-utils"
+  _os="$( \
+    uname \
+      -o)"
+  if [[ "${_os}" != "Android" ]]; then
+    _check_cmd \
+      "curl"
+  fi
 }
 
 # shellcheck disable=SC2034
@@ -31,26 +35,52 @@ _global_variables() {
   quiet=""
 }
 
-_credentials_requirements() {
-  if [[ "${_email}" == "" ]]; then
-    _msg_error \
-      "a sender email must be provided with -e" \
-      1
-  elif [[ "${_password}" == "" ]]; then
-    _msg_error \
-      "an email password must be provided with -k" \
-      1
+_catalogue_main_get() {
+  local \
+    _conf_dir \
+    _domain \
+    _dir \
+    _catalogue \
+    _curl_opts=() \
+    _dest \
+    _curl \
+    _os
+  _os="$( \
+    uname \
+      -o)"
+  _conf_dir="${HOME}/.config/$(_get "app" "name")"
+  _domain="https://dati.istruzione.it"
+  _dir="opendata/opendata/catalogo/elements1"
+  _catalogue="SCUANAGRAFESTAT20242520240901.csv"
+  _dest="${_conf_dir}/main.csv"
+  _url="${_domain}/${_dir}/${_catalogue}"
+  if [[ "${_os}" == "Android" ]]; then
+    _curl="/system/bin/curl"
+  else
+    _curl="$( \
+      command \
+        -v \
+        curl)"
   fi
-  if [[ "${_email}" != *"@"* ]]; then
-    _msg_error \
-      "malformed email" \
-      1
+  if [[ ! -d "${_conf_dir}" ]]; then
+    mkdir \
+      -p \
+      "${_conf_dir}"
+  fi
+  if [[ ! -e "${_dest}" ]]; then
+    _curl_opts=(
+      -L
+      -o "${_dest}"
+    )
+    "${_curl}" \
+      "${_curl_opts[@]}"
+      "${_url}"
   fi
 }
 
-_email_bulk_sender() {
+_italian_schools_data_fetcher() {
   local \
-    _email="${1}" \
+    _catalogue="${1}" \
     _password="${2}" \
     _subject="${3}" \
     _body="${4}" \
@@ -62,6 +92,7 @@ _email_bulk_sender() {
     "$@"
   )
   _credentials_requirements
+  "_catalogue_${_catalogue}_get"
 }
 
 _set_overrides() {
@@ -70,9 +101,9 @@ _set_overrides() {
     "date" \
     "$(_get_date_human)"
   _set_override \
-    "user" \
-    "email" \
-    ""
+    "data" \
+    "catalogue" \
+    "main"
   _set_override \
     "user" \
     "password" \
@@ -105,7 +136,7 @@ _set_overrides() {
 _show_config() {
   _msg_info "${app_name} configuration"
   _msg_info "                 Get date:   $(_get "get" "date")"
-  _msg_info "               User email:   $(_get "user" "email")"
+  _msg_info "           Data Catalogue:   $(_get "data" "catalogue")"
   _msg_info "            User password:   $(_get "user" "password")"
   _msg_info "            Email subject:   $(_get "email" "subject")"
   _msg_info "               Email body:   $(_get "email" "body")"
@@ -133,8 +164,8 @@ Usage:
     [options]
     [recipients]
   options:
-     -e <email>                User email.
-                               Default: $(_get "user" "email")
+     -d <data_catalogue>       Data catalogue (main).
+                               Default: $(_get "data" "catalogue")
      -k <password>             User password
                                Default: $(_get "user" "password")
      -s <subject>              Email subject
@@ -159,11 +190,11 @@ _global_variables
 # shellcheck disable=SC2034
 while \
   getopts \
-    'e:k:s:b:n:cvh?' \
+    'd:k:s:b:n:cvh?' \
     arg; do
   case \
     "${arg}" in
-    e) override_user_email="${OPTARG}" ;;
+    d) override_data_catalogue="${OPTARG}" ;;
     k) override_user_password="${OPTARG}" ;;
     s) override_email_subject="${OPTARG}" ;;
     b) override_email_body="${OPTARG}" ;;
@@ -197,8 +228,8 @@ email_recipients=(
 _set_overrides
 app_opts=(
   "$(_get \
-       "user" \
-       "email")"
+       "data" \
+       "catalogue")"
   "$(_get \
        "user" \
        "password")"
