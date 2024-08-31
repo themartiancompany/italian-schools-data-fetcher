@@ -26,18 +26,18 @@ _root_requirements() {
 # shellcheck disable=SC2034
 _global_variables() {
   get_date=""
-  user_email=""
-  user_password=""
-  email_subject=""
-  email_body=""
-  email_recipients=()
+  target_command=""
+  data_catalogue=""
+  target_key=""
+  target_value=""
+  out_file=""
+  results_max=""
   color=""
   quiet=""
 }
 
 _catalogue_main_get() {
   local \
-    _conf_dir \
     _domain \
     _dir \
     _catalogue \
@@ -48,7 +48,6 @@ _catalogue_main_get() {
   _os="$( \
     uname \
       -o)"
-  _conf_dir="${HOME}/.config/$(_get "app" "name")"
   _domain="https://dati.istruzione.it"
   _dir="opendata/opendata/catalogo/elements1"
   _catalogue="SCUANAGRAFESTAT20242520240901.csv"
@@ -72,27 +71,186 @@ _catalogue_main_get() {
       -L
       -o "${_dest}"
     )
+    _msg_info \
+      "getting catalogue '${_catalogue}' into 'main'"
     "${_curl}" \
-      "${_curl_opts[@]}"
+      "${_curl_opts[@]}" \
       "${_url}"
+  else
+    _msg_info \
+      "using cached catalogue"
   fi
+}
+
+_key_index_find() {
+  local \
+    _catalogue="${1}" \
+    _target_key="${2}" \
+    _keys=() \
+    _key \
+    _found \
+    _column
+  _keys=( $( \
+    _keys_get \
+      "${_catalogue}")
+  )
+  _column=1
+  _found="false"
+  for _key \
+    in "${_keys[@]}"; do
+    if [[ "${_key}" == "${_target_key}" ]]; then
+      _found="true"
+      break
+    fi
+    _column="$(( \
+      _column + 1))"
+  done
+  if [[ "${_found}" == 'false' ]]; then
+    _msg_error \
+      "key '${_target_key}' not found in catalogue '${_catalogue}'" \
+      0
+    _msg_error \
+      "available keys: ${_keys[*]}" \
+      1
+  fi
+  echo \
+    "${_column}"
+}
+
+_key_value_filter() {
+  local \
+    _key="${1}" \
+    _value="${2}" \
+    _out="${3}" \
+    _results_max="${4}" \
+    _target_value \
+    _data=() \
+    _results=() \
+    _content \
+    _counter
+  _db="${_conf_dir}/${_catalogue}.csv"
+  _column="$( \
+    _key_index_find \
+      "${_catalogue}" \
+      "${_key}")"
+  _keys=(
+      $(_keys_get \
+        "${_catalogue}")
+  )
+  _header="$( \
+    cat \
+      "${_db}" | \
+      head \
+        -n \
+        1)"
+  _content="$( \
+    cat \
+      "${_db}")"
+  set \
+    -o \
+    noglob
+  IFS=$'\n' \
+  _data=(
+    $_content
+  )
+  set \
+    +o \
+    noglob
+  unset \
+    _content
+  _counter=1
+  _msg_info \
+    "db size: ${#_data[@]} entries"
+  for _line \
+    in ${_data[@]}; do 
+    # _grep="$( \
+    #   echo \
+    #    "${_line}" | \
+    #    grep "${_value}" || \
+    #    true)" 
+    # if [[ "${_grep}" != "" ]]; then
+    if [[ "${_line}" == *"${_value}"* ]]; then
+      _target_value="$( \
+        echo \
+          "${_line}" | \
+          awk \
+            -F ',' \
+            '{print $'${_column}'}')"
+      if [[ "${_value}" == "${_target_value}" ]]; then
+        _results+=(
+          "${_line}"
+        )
+      fi
+    fi || \
+      true
+    if (( ${_counter} % 2000 == 0 )) ; then
+      _msg_info \
+        "result ${_counter}, results found '${#_results[@]}'"
+    fi
+    _counter="$(( \
+      _counter + 1))"
+    if (( "${_results_max}" < "${#_results[@]}" )); then
+      break
+    fi
+  done
+  echo \
+    "${_header}" >> \
+    "${_out}"
+  for _result \
+    in "${_results[@]}"; do
+  echo \
+    "${_result}" >> \
+    "${_out}"
+  done
+}
+
+_keys_get() {
+  local \
+    _catalogue="${1}" \
+    _db \
+    _keys_line \
+    _keys=()
+  _db="${_conf_dir}/${_catalogue}.csv"
+  _keys_line="$( \
+    cat \
+      "${_db}" | \
+      head \
+        -n \
+        1)"
+  _keys=(
+    )
+  IFS="," \
+  read \
+    -ra \
+    _keys <<< \
+    "${_keys_line}"
+  echo \
+    "${_keys[*]}"
 }
 
 _italian_schools_data_fetcher() {
   local \
-    _catalogue="${1}" \
-    _password="${2}" \
-    _subject="${3}" \
-    _body="${4}" \
-    _recipients_per_email="${5}" \
-    _recipients=()
-  shift \
-    4
-  _recipients=(
-    "$@"
-  )
-  _credentials_requirements
-  "_catalogue_${_catalogue}_get"
+    _command="${1}" \
+    _catalogue="${2}" \
+    _key="${3}" \
+    _value="${4}" \
+    _out="${5}" \
+    _results_max="${6}" \
+    _conf_dir
+  _conf_dir="${HOME}/.config/$(_get "app" "name")"
+  if [[ "${_catalogue}" == "main" ]]; then
+    "_catalogue_${_catalogue}_get"
+  fi
+  if [[ "${_command}" == "keys" ]]; then
+    "_${_command}_get" \
+      "${_catalogue}"
+  elif [[ "${_command}" == "get" ]]; then
+    _key_value_filter \
+      "${_key}" \
+      "${_value}" \
+      "${_out}" \
+      "${_results_max}"
+  fi
 }
 
 _set_overrides() {
@@ -101,25 +259,29 @@ _set_overrides() {
     "date" \
     "$(_get_date_human)"
   _set_override \
+    "target" \
+    "command" \
+    "keys"
+  _set_override \
     "data" \
     "catalogue" \
     "main"
   _set_override \
-    "user" \
-    "password" \
+    "target" \
+    "key" \
+    "REGIONE"
+  _set_override \
+    "target" \
+    "value" \
     ""
   _set_override \
-    "email" \
-    "subject" \
-    ""
+    "out" \
+    "file" \
+    "results.csv"
   _set_override \
-    "email" \
-    "body" \
-    ""
-  _set_override \
-    "recipients" \
-    "per_email" \
-    "1"
+    "results" \
+    "max" \
+    "10"
   if [[ -v override_color ]]; then
     color="${override_color}"
   elif [[ -z "${color}" ]]; then
@@ -137,12 +299,11 @@ _show_config() {
   _msg_info "${app_name} configuration"
   _msg_info "                 Get date:   $(_get "get" "date")"
   _msg_info "           Data Catalogue:   $(_get "data" "catalogue")"
-  _msg_info "            User password:   $(_get "user" "password")"
-  _msg_info "            Email subject:   $(_get "email" "subject")"
-  _msg_info "               Email body:   $(_get "email" "body")"
-  _msg_info "     Recipients per email:   $(_get "recipients" "per_email")"
-  _msg_info "               Recipients:   "
-  _display_flags                          "${_recipients[*]}"
+  _msg_info "           Target command:   $(_get "target" "command")"
+  _msg_info "               Target key:   $(_get "target" "key")"
+  _msg_info "             Target value:   $(_get "target" "value")"
+  _msg_info "                 Out file:   $(_get "out" "file")"
+  _msg_info "              Max results:   $(_get "results" "max")"
 }
 
 # Show help usage, with an exit status.
@@ -162,18 +323,22 @@ Gets Italian schools data.
 Usage:
   $(_get "app" "name")
     [options]
-    [recipients]
+    <command>
+  commands:
+    get                        Get the data
+    keys                       Get all catalogue keys
   options:
      -d <data_catalogue>       Data catalogue (main).
                                Default: $(_get "data" "catalogue")
-     -k <password>             User password
-                               Default: $(_get "user" "password")
-     -s <subject>              Email subject
-                               Default: $(_get "email" "subject")
-     -b <body>                 Email body
-                               Default: $(_get "email" "body")
-     -n <recipients_per_email> Recipients per email
-                               Default: $(_get "recipients" "per_email")
+     -K <target_key>           Key to filter.
+                               Default: $(_get "target" "key")
+     -V <target_value>         Value for the key to filter.
+                               Default: $(_get "target" "value")
+     -o <out_file>             Filtered file.
+                               Default: $(_get "out" "file")
+     -n <results_max>          Maximum amount of results.
+                               Default: $(_get "results" "max")
+
      -h                        This message.
      -v                        Enable verbose output
 ENDUSAGETEXT
@@ -190,15 +355,15 @@ _global_variables
 # shellcheck disable=SC2034
 while \
   getopts \
-    'd:k:s:b:n:cvh?' \
+    'd:K:V:o:n:cvh?' \
     arg; do
   case \
     "${arg}" in
     d) override_data_catalogue="${OPTARG}" ;;
-    k) override_user_password="${OPTARG}" ;;
-    s) override_email_subject="${OPTARG}" ;;
-    b) override_email_body="${OPTARG}" ;;
-    n) override_recipients_per_email="${OPTARG}" ;;
+    K) override_target_key="${OPTARG}" ;;
+    V) override_target_value="${OPTARG}" ;;
+    o) override_out_file="${OPTARG}" ;;
+    n) override_results_max="${OPTARG}" ;;
     c) override_color="y" ;;
     v) override_quiet="n" ;;
     h|?) _set_overrides && \
@@ -219,30 +384,35 @@ shift \
     OPTIND - 1 \
   ))
 (( "$#" < 1 )) && \
-  _msg_error \
-    "No recipients given." \
-    1
-email_recipients=(
-  "$@"
-)
+  _set \
+    "target" \
+    "command" \
+    "keys"
+(( 0 < "$#" )) && \
+  _set \
+    "target" \
+    "command" \
+    "${1}"
 _set_overrides
 app_opts=(
+  "$(_get \
+       "target" \
+       "command")"
   "$(_get \
        "data" \
        "catalogue")"
   "$(_get \
-       "user" \
-       "password")"
+       "target" \
+       "key")"
+ "$(_get \
+       "target" \
+       "value")"
   "$(_get \
-       "email" \
-       "subject")"
+       "out" \
+       "file")"
   "$(_get \
-       "email" \
-       "body")"
-  "$(_get \
-       "recipients" \
-       "per_email")"
-  "${email_recipients[@]}"
+       "results" \
+       "max")"
 )
 _show_config
 _italian_schools_data_fetcher \
