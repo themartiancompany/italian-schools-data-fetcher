@@ -13,7 +13,7 @@ _share="${_bin}/../share"
 source \
   "${_lib}/libcrash-bash/crash-bash"
 
-_root_requirements() {
+_requirements() {
   _os="$( \
     uname \
       -o)"
@@ -163,12 +163,6 @@ _key_value_filter() {
     "db size: ${#_data[@]} entries"
   for _line \
     in ${_data[@]}; do 
-    # _grep="$( \
-    #   echo \
-    #    "${_line}" | \
-    #    grep "${_value}" || \
-    #    true)" 
-    # if [[ "${_grep}" != "" ]]; then
     if [[ "${_line}" == *"${_value}"* ]]; then
       _target_value="$( \
         echo \
@@ -228,6 +222,15 @@ _keys_get() {
     "${_keys[*]}"
 }
 
+_catalogue_dump() {
+  local \
+    _catalogue="${1}" \
+    _db
+  _db="${_conf_dir}/${_catalogue}.csv"
+  cat \
+    "${_db}"
+}
+
 _italian_schools_data_fetcher() {
   local \
     _command="${1}" \
@@ -243,6 +246,9 @@ _italian_schools_data_fetcher() {
   fi
   if [[ "${_command}" == "keys" ]]; then
     "_${_command}_get" \
+      "${_catalogue}"
+  elif [[ "${_command}" == "dump" ]]; then
+    "_catalogue_${_command}" \
       "${_catalogue}"
   elif [[ "${_command}" == "get" ]]; then
     _key_value_filter \
@@ -327,6 +333,7 @@ Usage:
   commands:
     get                        Get the data
     keys                       Get all catalogue keys
+    dump                       Dump whole catalogue
   options:
      -d <data_catalogue>       Data catalogue (main).
                                Default: $(_get "data" "catalogue")
@@ -351,6 +358,7 @@ ENDUSAGETEXT
 
 _globals
 _global_variables
+_requirements
 # shellcheck disable=SC2004
 # shellcheck disable=SC2034
 while \
